@@ -1,6 +1,6 @@
-import express from "express";
-import bodyParser from "body-parser";
-import axios from "axios";
+const express = require("express");
+const bodyParser = require("body-parser");
+const axios = require("axios");
 
 const app = express();
 app.use(bodyParser.json());
