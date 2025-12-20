@@ -1,13 +1,13 @@
 {
-  "name": "gemini-messenger-bot",
-  "version": "2.1.0",
-  "description": "Messenger Bot Gemini Stable",
+  "name": "gemini-3-messenger-bot",
+  "version": "3.0.0",
+  "description": "Messenger Bot using Gemini 3 Interactions API",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
+    "@google/genai": "^1.33.0",
     "axios": "^1.7.0",
     "body-parser": "^1.20.2",
     "dotenv": "^16.4.0",
