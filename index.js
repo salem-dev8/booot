@@ -6,11 +6,10 @@ require('dotenv').config();
 
 const app = express().use(bodyParser.json());
 
-// إعداد Gemini API
+// إعداد Gemini API باستخدام النموذج الأحدث
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // تم التحديث هنا
 
-// 1. التحقق من الـ Webhook (يستخدم لمرة واحدة عند ربط فيسبوك)
 app.get('/webhook', (req, res) => {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -18,7 +17,6 @@ app.get('/webhook', (req, res) => {
 
     if (mode && token) {
         if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
-            console.log('WEBHOOK_VERIFIED');
             res.status(200).send(challenge);
         } else {
             res.sendStatus(403);
@@ -26,16 +24,13 @@ app.get('/webhook', (req, res) => {
     }
 });
 
-// 2. استقبال رسائل المستخدمين
 app.post('/webhook', (req, res) => {
     const body = req.body;
-
     if (body.object === 'page') {
         body.entry.forEach(entry => {
             if (entry.messaging) {
                 const webhook_event = entry.messaging[0];
                 const sender_psid = webhook_event.sender.id;
-
                 if (webhook_event.message && webhook_event.message.text) {
                     handleMessage(sender_psid, webhook_event.message.text);
                 }
@@ -47,17 +42,14 @@ app.post('/webhook', (req, res) => {
     }
 });
 
-// 3. معالجة النص بواسطة Gemini
 async function handleMessage(sender_psid, received_message) {
     try {
-        // إظهار مؤشر "يتم الكتابة الآن" في مسنجر
         sendTypingAction(sender_psid, 'typing_on');
 
+        // طلب الرد من Gemini
         const result = await model.generateContent(received_message);
-        const response = await result.response;
-        const responseText = response.text();
+        const responseText = result.response.text();
 
-        // تقسيم النص إذا كان طويلاً جداً (فيسبوك يسمح بـ 2000 حرف كحد أقصى)
         if (responseText.length > 2000) {
             const chunks = responseText.match(/[\s\S]{1,2000}/g);
             for (const chunk of chunks) {
@@ -67,47 +59,32 @@ async function handleMessage(sender_psid, received_message) {
             await sendToMessenger(sender_psid, responseText);
         }
     } catch (error) {
-        console.error("Error with Gemini API:", error);
-        await sendToMessenger(sender_psid, "عذراً، واجهت مشكلة في معالجة طلبك حالياً.");
+        console.error("Gemini Error:", error.message);
+        await sendToMessenger(sender_psid, "عذراً، حدث خطأ في النظام. حاول مرة أخرى لاحقاً.");
     } finally {
         sendTypingAction(sender_psid, 'typing_off');
     }
 }
 
-// 4. إرسال الرسالة النهائية للمستخدم
 async function sendToMessenger(sender_psid, text) {
-    const responseBody = {
-        recipient: { id: sender_psid },
-        message: { text: text }
-    };
-
     try {
-        await axios.post(
-            `https://graph.facebook.com/v18.0/me/messages?access_token=${process.env.PAGE_TOKEN}`,
-            responseBody
-        );
+        await axios.post(`https://graph.facebook.com/v18.0/me/messages?access_token=${process.env.PAGE_TOKEN}`, {
+            recipient: { id: sender_psid },
+            message: { text: text }
+        });
     } catch (err) {
-        console.error("Messenger API Error:", err.response ? err.response.data : err.message);
+        console.error("Messenger Error:", err.response ? err.response.data : err.message);
     }
 }
 
-// 5. وظيفة إضافية لإظهار "جاري الكتابة"
 async function sendTypingAction(sender_psid, action) {
     try {
-        await axios.post(
-            `https://graph.facebook.com/v18.0/me/messages?access_token=${process.env.PAGE_TOKEN}`,
-            {
-                recipient: { id: sender_psid },
-                sender_action: action
-            }
-        );
-    } catch (err) {
-        // خطأ غير حرج يمكن تجاهله في السجلات
-    }
+        await axios.post(`https://graph.facebook.com/v18.0/me/messages?access_token=${process.env.PAGE_TOKEN}`, {
+            recipient: { id: sender_psid },
+            sender_action: action
+        });
+    } catch (err) {}
 }
 
-// تشغيل الخادم
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
