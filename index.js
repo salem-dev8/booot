@@ -11,7 +11,9 @@ const client = new GoogleGenAI({ apiKey: process.env.GEMINI_KEY });
 
 // مخزن مؤقت لربط معرف مستخدم فيسبوك بمعرف التفاعل (Interaction ID)
 const userSessions = new Map();
-
+app.get('/ogvu7owkq9al19c1b6r2uuf2de3e08.html', (req, res) => {
+    res.send("ضع هنا النص الذي يطلبه منك فيسبوك للتحقق");
+});
 app.get('/webhook', (req, res) => {
     if (req.query['hub.verify_token'] === process.env.VERIFY_TOKEN) {
         res.send(req.query['hub.challenge']);
