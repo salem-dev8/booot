@@ -6,64 +6,59 @@ require('dotenv').config();
 
 const app = express().use(bodyParser.json());
 
-// إعداد Gemini API 
-// ملاحظة: قمنا بإضافة التكوين لضمان الوصول للمسار الصحيح
+// إعداد Gemini - نستخدم 2.0-flash لأنه الأحدث والأكثر استقراراً حالياً
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
-const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash",
-});
+// ملاحظة: إذا استمر الخطأ 404، قم بتغيير الاسم إلى "gemini-1.5-flash"
+const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
+// التحقق من Webhook فيسبوك
 app.get('/webhook', (req, res) => {
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
-    const challenge = req.query['hub.challenge'];
-
-    if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
-        res.status(200).send(challenge);
+    if (req.query['hub.verify_token'] === process.env.VERIFY_TOKEN) {
+        res.send(req.query['hub.challenge']);
     } else {
         res.sendStatus(403);
     }
 });
 
-app.post('/webhook', (req, res) => {
+// استقبال الرسائل
+app.post('/webhook', async (req, res) => {
     const body = req.body;
     if (body.object === 'page') {
-        body.entry.forEach(entry => {
-            if (entry.messaging && entry.messaging[0].message) {
-                const sender_psid = entry.messaging[0].sender.id;
-                const text = entry.messaging[0].message.text;
-                if (text) handleMessage(sender_psid, text);
+        for (let entry of body.entry) {
+            let webhook_event = entry.messaging[0];
+            let sender_psid = webhook_event.sender.id;
+
+            if (webhook_event.message && webhook_event.message.text) {
+                await handleMessage(sender_psid, webhook_event.message.text);
             }
-        });
+        }
         res.status(200).send('EVENT_RECEIVED');
+    } else {
+        res.sendStatus(404);
     }
 });
 
-async function handleMessage(sender_psid, received_text) {
+async function handleMessage(sender_psid, text) {
     try {
-        // إظهار أن البوت يكتب
-        await sendAction(sender_psid, 'typing_on');
+        // تشغيل مؤشر الكتابة
+        await sendMessengerAction(sender_psid, 'typing_on');
 
-        // محاولة جلب الرد من Gemini
-        const result = await model.generateContent({
-            contents: [{ role: "user", parts: [{ text: received_text }] }]
-        });
-        
+        // استدعاء Gemini
+        const result = await model.generateContent(text);
         const responseText = result.response.text();
 
-        // إرسال النص مقسماً إذا لزم الأمر
-        await sendLongMessage(sender_psid, responseText);
-
+        // إرسال الرد (مع تقسيم الرسالة إذا زادت عن 2000 حرف)
+        await sendSplitMessage(sender_psid, responseText);
     } catch (error) {
-        console.error("Gemini Critical Error:", error);
-        // إذا فشل Flash، جرب نموذج Pro كخيار احتياطي (اختياري)
-        await sendToMessenger(sender_psid, "عذراً، واجهت مشكلة تقنية في الاتصال بجيميني.");
+        console.error("Gemini Error:", error.message);
+        // محاولة إرسال رسالة تنبيه للمستخدم
+        await sendToMessenger(sender_psid, "عذراً، واجهت مشكلة في معالجة طلبك (Error 404/Service Unavailable).");
     } finally {
-        await sendAction(sender_psid, 'typing_off');
+        await sendMessengerAction(sender_psid, 'typing_off');
     }
 }
 
-async function sendLongMessage(sender_psid, text) {
+async function sendSplitMessage(sender_psid, text) {
     const chunks = text.match(/[\s\S]{1,2000}/g) || [];
     for (const chunk of chunks) {
         await sendToMessenger(sender_psid, chunk);
@@ -77,11 +72,11 @@ async function sendToMessenger(sender_psid, text) {
             message: { text: text }
         });
     } catch (err) {
-        console.error("Messenger Send Error:", err.response?.data || err.message);
+        console.error("FB Send Error:", err.response?.data || err.message);
     }
 }
 
-async function sendAction(sender_psid, action) {
+async function sendMessengerAction(sender_psid, action) {
     try {
         await axios.post(`https://graph.facebook.com/v21.0/me/messages?access_token=${process.env.PAGE_TOKEN}`, {
             recipient: { id: sender_psid },
@@ -91,4 +86,4 @@ async function sendAction(sender_psid, action) {
 }
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server connected on port ${PORT}`));
+app.listen(PORT, () => console.log(`Bot is live on port ${PORT}`));
