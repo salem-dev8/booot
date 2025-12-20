@@ -1,12 +1,16 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const axios = require('axios');
-require('dotenv').config();
+import express from 'express';
+import bodyParser from 'body-parser';
+import axios from 'axios';
+import { GoogleGenAI } from '@google/genai';
+import 'dotenv/config';
 
 const app = express().use(bodyParser.json());
 
-// إعدادات التوصيل
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+// إعداد العميل الجديد (يقرأ المفتاح تلقائياً من GEMINI_API_KEY في الـ ENV)
+const client = new GoogleGenAI({ apiKey: process.env.GEMINI_KEY });
+
+// مخزن مؤقت لربط معرف مستخدم فيسبوك بمعرف التفاعل (Interaction ID)
+const userSessions = new Map();
 
 app.get('/webhook', (req, res) => {
     if (req.query['hub.verify_token'] === process.env.VERIFY_TOKEN) {
@@ -24,7 +28,7 @@ app.post('/webhook', async (req, res) => {
                 let event = entry.messaging[0];
                 let sender_psid = event.sender.id;
                 if (event.message && event.message.text) {
-                    await handleMessage(sender_psid, event.message.text);
+                    await handleInteraction(sender_psid, event.message.text);
                 }
             }
         }
@@ -32,28 +36,33 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
-async function handleMessage(sender_psid, text) {
+async function handleInteraction(sender_psid, text) {
     try {
         await sendAction(sender_psid, 'typing_on');
 
-        // طلب مباشر من جوجل بدون استخدام مكتبة @google/generative-ai
-        const response = await axios.post(`${GEMINI_API_URL}?key=${process.env.GEMINI_KEY}`, {
-            contents: [{ parts: [{ text: text }] }]
+        // جلب معرف التفاعل السابق لهذا المستخدم (لإدارة الحالة)
+        const previousId = userSessions.get(sender_psid);
+
+        // إنشاء تفاعل جديد باستخدام Interactions API
+        const interaction = await client.interactions.create({
+            model: 'gemini-3-flash-preview',
+            input: text,
+            previous_interaction_id: previousId || undefined,
+            // سيتم حفظ التفاعل تلقائياً لمدة يوم واحد في المستوى المجاني
+            store: true 
         });
 
-        const responseText = response.data.candidates[0].content.parts[0].text;
+        // حفظ المعرف الجديد للمرة القادمة
+        userSessions.set(sender_psid, interaction.id);
 
-        // إرسال الرد مقسماً
+        // الحصول على آخر مخرج نصي من النموذج
+        const responseText = interaction.outputs[interaction.outputs.length - 1].text;
+
         await sendLongMessage(sender_psid, responseText);
+
     } catch (error) {
-        const errorData = error.response ? error.response.data : error.message;
-        console.error("Gemini Direct Error:", JSON.stringify(errorData));
-        
-        if (JSON.stringify(errorData).includes('429')) {
-            await sendToMessenger(sender_psid, "عذراً، الحصة المجانية انتهت حالياً. جرب لاحقاً.");
-        } else {
-            await sendToMessenger(sender_psid, "حدث خطأ في الاتصال بجيميني.");
-        }
+        console.error("Interactions API Error:", error);
+        await sendToMessenger(sender_psid, "عذراً، حدث خطأ في معالجة التفاعل.");
     } finally {
         await sendAction(sender_psid, 'typing_off');
     }
@@ -87,4 +96,4 @@ async function sendAction(sender_psid, action) {
 }
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Direct Bot is live on port ${PORT}`));
+app.listen(PORT, () => console.log(`Gemini 3 Interactions Bot is live on port ${PORT}`));
