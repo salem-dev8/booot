@@ -5,15 +5,26 @@ import { GoogleGenAI } from '@google/genai';
 import 'dotenv/config';
 
 const app = express().use(bodyParser.json());
-
-// إعداد العميل الجديد (يقرأ المفتاح تلقائياً من GEMINI_API_KEY في الـ ENV)
 const client = new GoogleGenAI({ apiKey: process.env.GEMINI_KEY });
-
-// مخزن مؤقت لربط معرف مستخدم فيسبوك بمعرف التفاعل (Interaction ID)
 const userSessions = new Map();
-app.get('/ogvu7owkq9al19c1b6r2uuf2de3e08.html', (req, res) => {
-    res.send("ضع هنا النص الذي يطلبه منك فيسبوك للتحقق");
+
+// 1. الصفحة الرئيسية للتحقق من ملكية النطاق (مهم جداً لفيسبوك)
+app.get('/', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="facebook-domain-verification" content="ogvu7owkq9al19c1b6r2uuf2de3e08" />
+            <title>Verification</title>
+        </head>
+        <body>
+            <p>Bot is active and verified.</p>
+        </body>
+        </html>
+    `);
 });
+
+// 2. التحقق من Webhook الخاص بفيسبوك
 app.get('/webhook', (req, res) => {
     if (req.query['hub.verify_token'] === process.env.VERIFY_TOKEN) {
         res.send(req.query['hub.challenge']);
@@ -22,6 +33,7 @@ app.get('/webhook', (req, res) => {
     }
 });
 
+// 3. استقبال ومعالجة الرسائل
 app.post('/webhook', async (req, res) => {
     const body = req.body;
     if (body.object === 'page') {
@@ -41,30 +53,21 @@ app.post('/webhook', async (req, res) => {
 async function handleInteraction(sender_psid, text) {
     try {
         await sendAction(sender_psid, 'typing_on');
-
-        // جلب معرف التفاعل السابق لهذا المستخدم (لإدارة الحالة)
         const previousId = userSessions.get(sender_psid);
 
-        // إنشاء تفاعل جديد باستخدام Interactions API
         const interaction = await client.interactions.create({
             model: 'gemini-3-flash-preview',
             input: text,
             previous_interaction_id: previousId || undefined,
-            // سيتم حفظ التفاعل تلقائياً لمدة يوم واحد في المستوى المجاني
             store: true 
         });
 
-        // حفظ المعرف الجديد للمرة القادمة
         userSessions.set(sender_psid, interaction.id);
-
-        // الحصول على آخر مخرج نصي من النموذج
         const responseText = interaction.outputs[interaction.outputs.length - 1].text;
-
         await sendLongMessage(sender_psid, responseText);
 
     } catch (error) {
-        console.error("Interactions API Error:", error);
-        await sendToMessenger(sender_psid, "عذراً، حدث خطأ في معالجة التفاعل.");
+        console.error("Gemini Error:", error);
     } finally {
         await sendAction(sender_psid, 'typing_off');
     }
@@ -84,7 +87,7 @@ async function sendToMessenger(sender_psid, text) {
             message: { text: text }
         });
     } catch (err) {
-        console.error("FB Error:", err.response?.data || err.message);
+        console.error("FB Send Error:", err.response?.data || err.message);
     }
 }
 
@@ -98,4 +101,4 @@ async function sendAction(sender_psid, action) {
 }
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Gemini 3 Interactions Bot is live on port ${PORT}`));
+app.listen(PORT, () => console.log(`Verified Bot running on port ${PORT}`));
