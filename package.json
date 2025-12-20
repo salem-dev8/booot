@@ -1,13 +1,13 @@
 {
   "name": "gemini-messenger-bot",
-  "version": "1.0.0",
-  "description": "Facebook Messenger Bot using Gemini API",
+  "version": "1.1.0",
+  "description": "Facebook Messenger Bot using Gemini 1.5 API",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.1.0",
+    "@google/generative-ai": "^0.21.0",
     "axios": "^1.6.0",
     "body-parser": "^1.20.2",
     "dotenv": "^16.3.1",
