@@ -1,14 +1,12 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const axios = require('axios');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 require('dotenv').config();
 
 const app = express().use(bodyParser.json());
 
-// استخدام gemini-1.5-flash لتجنب قيود الحصة (Quota) في 2.0
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// إعدادات التوصيل
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 app.get('/webhook', (req, res) => {
     if (req.query['hub.verify_token'] === process.env.VERIFY_TOKEN) {
@@ -38,17 +36,23 @@ async function handleMessage(sender_psid, text) {
     try {
         await sendAction(sender_psid, 'typing_on');
 
-        const result = await model.generateContent(text);
-        const responseText = result.response.text();
+        // طلب مباشر من جوجل بدون استخدام مكتبة @google/generative-ai
+        const response = await axios.post(`${GEMINI_API_URL}?key=${process.env.GEMINI_KEY}`, {
+            contents: [{ parts: [{ text: text }] }]
+        });
 
+        const responseText = response.data.candidates[0].content.parts[0].text;
+
+        // إرسال الرد مقسماً
         await sendLongMessage(sender_psid, responseText);
     } catch (error) {
-        console.error("Gemini Error:", error.message);
-        // رسالة تنبيه للمستخدم عند حدوث ضغط على السيرفر
-        if (error.message.includes('429')) {
-            await sendToMessenger(sender_psid, "أنا متعب قليلاً من كثرة الأسئلة، يرجى إعادة المحاولة بعد دقيقة 😅");
+        const errorData = error.response ? error.response.data : error.message;
+        console.error("Gemini Direct Error:", JSON.stringify(errorData));
+        
+        if (JSON.stringify(errorData).includes('429')) {
+            await sendToMessenger(sender_psid, "عذراً، الحصة المجانية انتهت حالياً. جرب لاحقاً.");
         } else {
-            await sendToMessenger(sender_psid, "حدث خطأ بسيط، حاول مرة أخرى.");
+            await sendToMessenger(sender_psid, "حدث خطأ في الاتصال بجيميني.");
         }
     } finally {
         await sendAction(sender_psid, 'typing_off');
@@ -83,4 +87,4 @@ async function sendAction(sender_psid, action) {
 }
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Stable Bot is live on port ${PORT}`));
+app.listen(PORT, () => console.log(`Direct Bot is live on port ${PORT}`));
